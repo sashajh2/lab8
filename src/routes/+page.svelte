@@ -1,12 +1,14 @@
 <header style="display: flex; gap: 1em; align-items: baseline;">
     <h1>Project Mbappe</h1>
-    <div>
-        <label style="margin-left: auto;">Filter by time: 
-            <input type="range" id="time-slider" min="-1" max="1440" bind:value={timeFilter}>
-            <time style="display: block;">{timeFilterLabel}</time>
-        </label>
+    <label style="margin-left: auto;">Filter by time: 
+        <input type="range" id="time-slider" min="-1" max="1440" bind:value={timeFilter}>
+        {#if timeFilter != -1}
+        <time style="display: block;">{timeFilterLabel}</time>
+        {/if}
+    </label>
+    {#if timeFilter == -1}
         <em style="display: block;">(any time)</em>
-    </div>
+    {/if}
 </header>
 <div id="map">
 	<svg>
@@ -18,10 +20,12 @@
     </svg>
 </div>
 <div class="legend">
-	<div style="--departure-ratio: 1">More departures</div>
-	<div style="--departure-ratio: 0.5">Balanced</div>
-	<div style="--departure-ratio: 0">More arrivals</div>
+    <div class="legend-label">Legend:</div>
+    <div class="legend-item" style="--departure-ratio: 1">More departures</div>
+    <div class="legend-item" style="--departure-ratio: 0.5">Balanced</div>
+    <div class="legend-item" style="--departure-ratio: 0">More arrivals</div>
 </div>
+
 <style>
     @import url("$lib/global.css");
 </style>
@@ -46,7 +50,8 @@
     let radiusScale;
     $: radiusScale = d3.scaleSqrt()
         .domain([0, d3.max(stations, d => d.totalTraffic)])
-        .range([0, 25]);
+        .range([0, 35]);
+
 
     let mapViewChanged = 0;
     $: map?.on("move", evt => mapViewChanged++);
@@ -60,15 +65,27 @@
     function minutesSinceMidnight (date) {
         return date.getHours() * 60 + date.getMinutes();
     }
-    let filteredTrips = [];
     let filteredArrivals;
     let filteredDepartures;
     let filteredStations = [];
+    let filteredTrips = [];
     $: filteredTrips = timeFilter === -1? trips : trips.filter(trip => {
         let startedMinutes = minutesSinceMidnight(trip.started_at);
         let endedMinutes = minutesSinceMidnight(trip.ended_at);
         return Math.abs(startedMinutes - timeFilter) <= 60
             || Math.abs(endedMinutes - timeFilter) <= 60;
+    });
+
+    $: filteredArrivals = d3.rollup(filteredTrips, v => v.length, d => d.end_station_id);
+    $: filteredDepartures = d3.rollup(filteredTrips, v => v.length, d => d.start_station_id);
+        // Filtered stations
+    $: filteredStations = stations.map(station => {
+        station = {...station}
+        let id = station.Number;
+        station.arrivals = filteredArrivals.get(id) ?? 0;
+        station.departures = filteredDepartures.get(id) ?? 0;
+        station.totalTraffic = filteredArrivals.get(id) + filteredDepartures.get(id) ?? 0;
+        return station;
     });
 
     let stationFlow = d3.scaleQuantize()
@@ -145,9 +162,9 @@
         filteredStations = stations.map(station => {
             station = {...station}
             let id = station.Number;
-            station.arrivals = arrivals.get(id) ?? 0;
-            station.departures = departures.get(id) ?? 0;
-            station.totalTraffic = arrivals.get(id) + departures.get(id) ?? 0;
+            station.arrivals = filteredArrivals.get(id) ?? 0;
+            station.departures = filteredDepartures.get(id) ?? 0;
+            station.totalTraffic = filteredArrivals.get(id) + filteredDepartures.get(id) ?? 0;
             return station;
         });
     });
